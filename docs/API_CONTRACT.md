@@ -1,8 +1,13 @@
 # Contrato API Semtex
 
-Base URL local: `http://localhost:8080`
+Guía para el frontend: cómo conectarse al backend de Semtex.
 
-Todas las rutas privadas usan:
+- **Base URL local:** `http://localhost:8080`
+- **Swagger UI:** `http://localhost:8080/swagger-ui.html` · **OpenAPI JSON:** `http://localhost:8080/v3/api-docs`
+
+## Autenticación y multi-tenant
+
+Todas las rutas `/api/**` son privadas y requieren un JWT (Bearer) emitido por Supabase:
 
 ```http
 Authorization: Bearer <jwt>
@@ -20,48 +25,57 @@ El JWT debe incluir estos claims:
 }
 ```
 
-Roles:
+> **Importante (cambio de contrato):** la organización y el usuario se derivan **siempre del token**
+> (`org_id` y `sub`). El cliente **ya NO envía `organizationId` ni `userId`** en el body ni en los query
+> params. El backend aplica el aislamiento por tenant de forma automática (filtro Hibernate por
+> `organization_id`), así que un cliente nunca puede leer ni escribir datos de otra organización.
 
-- `ADMIN`: gestiona usuarios, documentos, auditoria y configuracion de tenant.
-- `OPERATOR`: sube documentos y usa chat.
-- `AUDITOR`: lee documentos, registros y auditoria.
+### Roles
 
-## Formato De Error
+| Rol | Puede |
+|---|---|
+| `ADMIN` | Todo: gestiona organización, usuarios, documentos, chat y lee auditoría. |
+| `OPERATOR` | Sube documentos y usa el chat; lecturas. |
+| `AUDITOR` | Lecturas + auditoría (no sube ni gestiona). |
 
-Todos los errores del `ControllerAdvice` devuelven:
+Permisos por endpoint indicados en cada sección. Las lecturas simples (detalle/listado) solo requieren
+estar autenticado.
+
+## Formato de error
+
+Todos los errores devuelven el mismo cuerpo (campos nulos se omiten):
 
 ```json
 {
-  "timestamp": "2026-06-18T16:00:00Z",
+  "timestamp": "2026-06-18T16:00:00.123-05:00",
   "status": 400,
   "error": "Bad Request",
-  "message": "La solicitud contiene campos invalidos.",
+  "message": "La solicitud contiene campos inválidos.",
   "path": "/api/users",
   "fieldErrors": {
-    "email": "El email no es valido"
+    "email": "El email no es válido"
   }
 }
 ```
 
+`fieldErrors` solo aparece en errores de validación (`400`).
+
+---
+
 ## Organizaciones
 
-### Crear organizacion
-
-`POST /api/organizations`
+### Crear organización — `POST /api/organizations` · **ADMIN**
 
 ```json
-{
-  "name": "Ferreteria Lopez",
-  "slug": "ferreteria-lopez"
-}
+{ "name": "Ferretería López", "slug": "ferreteria-lopez" }
 ```
 
-Respuesta `201`:
+`slug` debe cumplir `^[a-z0-9-]{2,100}$`. Respuesta `201`:
 
 ```json
 {
   "id": "uuid",
-  "name": "Ferreteria Lopez",
+  "name": "Ferretería López",
   "slug": "ferreteria-lopez",
   "active": true,
   "createdAt": "2026-06-18T10:00:00",
@@ -69,88 +83,64 @@ Respuesta `201`:
 }
 ```
 
-### Obtener organizacion del token
+### Obtener la organización del token — `GET /api/organizations`
 
-`GET /api/organizations`
-
-Respuesta:
-
-```json
-[
-  {
-    "id": "uuid",
-    "name": "Ferreteria Lopez",
-    "slug": "ferreteria-lopez",
-    "active": true
-  }
-]
-```
+Devuelve la organización del token (lista de un elemento por el filtro de tenant).
 
 ### Detalle, renombrar y desactivar
 
 - `GET /api/organizations/{id}`
-- `PATCH /api/organizations/{id}` con `{ "name": "Nuevo nombre" }`
-- `DELETE /api/organizations/{id}`
+- `PATCH /api/organizations/{id}` — **ADMIN** — body `{ "name": "Nuevo nombre" }`
+- `DELETE /api/organizations/{id}` — **ADMIN** — desactiva (`204`)
+
+---
 
 ## Usuarios
 
-### Crear usuario
+### Crear usuario — `POST /api/users` · **ADMIN**
 
-`POST /api/users`
+La organización se toma del token; **no** se envía `organizationId`.
+
+```json
+{ "email": "operador@empresa.com", "role": "OPERATOR" }
+```
+
+Respuesta `201`:
 
 ```json
 {
+  "id": "uuid",
   "email": "operador@empresa.com",
   "role": "OPERATOR",
-  "organizationId": "uuid"
+  "active": true,
+  "lastLoginAt": null,
+  "createdAt": "2026-06-18T10:00:00"
 }
 ```
 
-### Listar usuarios por organizacion
+### Listar usuarios — `GET /api/users`
 
-`GET /api/users?organizationId={uuid}`
+Lista los usuarios de la organización del token (sin query params).
 
-Respuesta:
-
-```json
-[
-  {
-    "id": "uuid",
-    "email": "operador@empresa.com",
-    "role": "OPERATOR",
-    "active": true
-  }
-]
-```
-
-### Gestion
+### Gestión
 
 - `GET /api/users/{id}`
-- `PATCH /api/users/{id}/role` con `{ "role": "AUDITOR" }`
-- `DELETE /api/users/{id}` desactiva el usuario.
+- `PATCH /api/users/{id}/role` — **ADMIN** — body `{ "role": "AUDITOR" }`
+- `DELETE /api/users/{id}` — **ADMIN** — desactiva el usuario (`204`)
+
+---
 
 ## Documentos
 
-### Subir Excel/CSV
+### Subir Excel/CSV — `POST /api/documents` · **ADMIN / OPERATOR**
 
-`POST /api/documents`
-
-Content type: `multipart/form-data`
-
-Campos:
-
-- `file`: archivo `.csv`, `.xlsx` o `.xls`
-- `organizationId`: UUID
-- `uploadedByUserId`: UUID
-
-Ejemplo:
+`multipart/form-data` con un único campo `file` (`.csv`, `.xlsx` o `.xls`). La organización y el autor se
+derivan del token; **no** se envían `organizationId` ni `uploadedByUserId`.
 
 ```bash
 curl -X POST http://localhost:8080/api/documents \
   -H "Authorization: Bearer $TOKEN" \
-  -F "file=@balance.csv" \
-  -F "organizationId=$ORG_ID" \
-  -F "uploadedByUserId=$USER_ID"
+  -F "file=@balance.csv"
 ```
 
 Respuesta `201`:
@@ -159,7 +149,7 @@ Respuesta `201`:
 {
   "id": "uuid",
   "name": "balance.csv",
-  "storagePath": "org-id/balance.csv",
+  "storagePath": "<org-id>/<uuid>-balance.csv",
   "mimeType": "text/csv",
   "fileSizeBytes": 12345,
   "organizationId": "uuid",
@@ -168,29 +158,28 @@ Respuesta `201`:
 }
 ```
 
+El original se guarda en object storage (S3/MinIO) vía `FileStoragePort`; al subirlo se ingieren las filas
+como registros financieros.
+
 ### Listado y detalle
 
-- `GET /api/documents?organizationId={uuid}`
+- `GET /api/documents` — documentos de la organización del token (orden `createdAt DESC`)
 - `GET /api/documents/{id}`
-- `DELETE /api/documents/{id}`
+- `DELETE /api/documents/{id}` — **ADMIN** (`204`)
 
-Los listados salen ordenados por `createdAt DESC`.
+---
 
-## Registros Financieros
+## Registros financieros
 
-Registros creados automaticamente al subir un documento.
+Creados automáticamente al subir un documento. La organización sale del token.
 
-### Listar registros
+### Listar — `GET /api/financial-records`
 
-`GET /api/financial-records?organizationId={uuid}&limit=100`
+Query params (todos opcionales):
 
-Filtros opcionales:
-
-- `documentId={uuid}`: filas de un documento validando tenant.
-- `fieldName=categoria&value=Ventas`: busqueda exacta por JSONB usando indice GIN.
-- `limit=100`: maximo recomendado para UI; el backend limita internamente a `1000`.
-
-Respuesta:
+- `documentId={uuid}` — filas de un documento concreto
+- `fieldName=categoria&value=Ventas` — búsqueda exacta por campo JSONB (índice GIN)
+- `limit=100` — por defecto 100; tope interno 1000
 
 ```json
 [
@@ -199,34 +188,25 @@ Respuesta:
     "documentId": "uuid",
     "sheetName": "default",
     "rowIndex": 1,
-    "rowData": {
-      "fecha": "2026-06-01",
-      "categoria": "Ventas",
-      "ingreso": 1000
-    },
+    "rowData": { "fecha": "2026-06-01", "categoria": "Ventas", "ingreso": 1000 },
     "createdAt": "2026-06-18T10:00:00"
   }
 ]
 ```
 
+---
+
 ## Chat IA
 
-### Enviar mensaje
+### Enviar mensaje — `POST /api/chat/messages` · **ADMIN / OPERATOR**
 
-`POST /api/chat/messages`
+Organización y usuario salen del token; **solo** se envía `content` y opcionalmente `documentId`.
 
 ```json
-{
-  "content": "Cual fue el total de ventas?",
-  "organizationId": "uuid",
-  "userId": "uuid",
-  "documentId": "uuid"
-}
+{ "content": "¿Cuál fue el total de ventas?", "documentId": "uuid" }
 ```
 
-`documentId` puede omitirse para una conversacion sin contexto financiero.
-
-Respuesta:
+`documentId` puede omitirse para una conversación sin contexto financiero. Respuesta:
 
 ```json
 {
@@ -237,34 +217,27 @@ Respuesta:
       "documentId": "uuid",
       "sheetName": "default",
       "rowIndex": 1,
-      "rowData": {
-        "categoria": "Ventas",
-        "ingreso": 1000
-      },
+      "rowData": { "categoria": "Ventas", "ingreso": 1000 },
       "createdAt": "2026-06-18T10:00:00"
     }
   ]
 }
 ```
 
-El contexto enviado a IA se limita con `semtex.ai.max-context-records`.
+El agente (LangChain4j + Ollama, `llama3.1:8b`) puede invocar herramientas (`consultarDatosFinancieros`,
+`compararPeriodos`, `enviarCorreo`). El contexto financiero se limita con `semtex.ai.max-context-records`.
 
-### Historial
+### Historial — `GET /api/chat/messages` · **ADMIN / OPERATOR**
 
-`GET /api/chat/messages?organizationId={uuid}&userId={uuid}&limit=100`
-
-Filtro opcional:
-
-- `documentId={uuid}`
-
-Respuesta en orden cronologico:
+Query params: `documentId={uuid}` (opcional), `limit=100`. Devuelve los mensajes del usuario del token en
+orden cronológico:
 
 ```json
 [
   {
     "id": "uuid",
     "role": "USER",
-    "content": "Cual fue el total de ventas?",
+    "content": "¿Cuál fue el total de ventas?",
     "userId": "uuid",
     "documentId": "uuid",
     "tokensUsed": null,
@@ -273,11 +246,15 @@ Respuesta en orden cronologico:
 ]
 ```
 
-## Auditoria
+`role` ∈ `USER | ASSISTANT`.
 
-`GET /api/audit/logs?organizationId={uuid}&limit=100`
+---
 
-Respuesta:
+## Auditoría
+
+### Listar — `GET /api/audit/logs` · **ADMIN / AUDITOR**
+
+Query param: `limit=100`. La organización sale del token.
 
 ```json
 [
@@ -291,13 +268,34 @@ Respuesta:
 ]
 ```
 
-## Buenas Practicas Implementadas
+`action` ∈ `DOCUMENT_UPLOADED | FINANCIAL_QUERY | EMAIL_SENT | EMAIL_FAILED | USER_LOGIN | USER_CREATED |
+USER_DEACTIVATED | ROLE_CHANGED`.
 
-- Aislamiento tenant: endpoints validan `organizationId` contra el claim `org_id`.
-- Lecturas financieras usan `organizationId + documentId`, no solo `documentId`.
-- Listados grandes usan `limit` y tope interno.
-- JSONB usa consulta `@>` para aprovechar GIN en busquedas exactas.
-- Migracion `V6` agrega indices compuestos para rutas reales de API.
-- `application.properties` real queda fuera de git y existe `application-example.properties`.
-- Errores son consistentes para frontend.
+---
+
+## Resumen de endpoints
+
+| Método | Ruta | Rol mínimo | Tenant |
+|---|---|---|---|
+| POST | `/api/organizations` | ADMIN | — |
+| GET | `/api/organizations` · `/{id}` | autenticado | token |
+| PATCH/DELETE | `/api/organizations/{id}` | ADMIN | token |
+| POST | `/api/users` | ADMIN | token |
+| GET | `/api/users` · `/{id}` | autenticado | token |
+| PATCH `/{id}/role` · DELETE `/{id}` | `/api/users` | ADMIN | token |
+| POST | `/api/documents` | ADMIN/OPERATOR | token |
+| GET | `/api/documents` · `/{id}` | autenticado | token |
+| DELETE | `/api/documents/{id}` | ADMIN | token |
+| GET | `/api/financial-records` | autenticado | token |
+| POST/GET | `/api/chat/messages` | ADMIN/OPERATOR | token |
+| GET | `/api/audit/logs` | ADMIN/AUDITOR | token |
+
+## Notas de implementación
+
+- Aislamiento tenant **por defecto**: `TenantContext` request-scoped (poblado desde el JWT) + filtro
+  Hibernate global por `organization_id`. El cliente nunca envía el tenant.
+- Lecturas financieras combinan `organizationId` (del token) + `documentId`.
+- Listados grandes usan `limit` con tope interno.
+- JSONB con consulta `@>` para aprovechar el índice GIN en búsquedas exactas.
+- Errores uniformes vía `@RestControllerAdvice` para el frontend.
 - CORS configurable con `semtex.cors.allowed-origins`.

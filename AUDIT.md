@@ -24,8 +24,9 @@ Sin embargo, hay **dos hallazgos bloqueantes** que invalidan promesas centrales 
    inferencia lenta; y cuando el modelo responde con un `tool_call`, no hay segundo round-trip, por lo que
    `agentResponse` suele quedar **vacío**.
 
-El resto son brechas de alineación con la arquitectura objetivo (modularización por contexto, LangChain4j,
-ArchUnit, tests, MapStruct, storage real, AOP de auditoría) y mejoras de calidad.
+El resto son brechas de alineación con la arquitectura objetivo (LangChain4j, ArchUnit, tests, MapStruct,
+storage real, AOP de auditoría) y mejoras de calidad. La estructura **hexagonal global por capas**
+(`domain · application · infrastructure`) se mantiene tal cual: es correcta y suficiente para el alcance.
 
 **Veredicto:** base aprovechable, pero requiere refactor de tenancy y del adaptador de IA antes de poder
 considerarse seguro. Recomiendo **conservar y migrar** el código actual, no reescribir desde cero.
@@ -61,7 +62,7 @@ com.semtex
 
 | Área | Spec objetivo | Estado actual | Gap |
 |---|---|---|---|
-| Modularización | Modular por **bounded context** (`shared, identity, document, financial, chat, email, audit`) | Hexagonal **global** por capas | ✖ A migrar |
+| Estructura | Hexagonal **global por capas** (`domain · application · infrastructure`) | Hexagonal global por capas | ✔ Se mantiene |
 | Java | 21 | **17** (`pom.xml`) | ✖ |
 | Tenancy | `TenantContext` request-scoped + filtrado en persistencia | `TenantGuard` manual en controllers | ✖ **Bloqueante** |
 | IA | LangChain4j + Ollama, `@Tool` (`consultarDatosFinancieros`, `compararPeriodos`, `enviarCorreo`), Llama **3.1** 8B | RestClient manual, parsing a mano, 1 tool (`send_email`), `llama3:8b` (3.0) | ✖ **Bloqueante** |
@@ -163,8 +164,9 @@ conexión de BD + worker de Tomcat durante toda la inferencia. No hay SSE ni eje
 
 1. **¿El frontend debe seguir enviando `organizationId`/`userId` en el body?** Recomiendo **eliminarlos del
    contrato** y derivarlos siempre del token (rompe compatibilidad con `API_CONTRACT.md` actual). — *Decisión tuya.*
-2. **Migrar a modular-por-contexto** implica mover ~70 archivos de paquete. Propongo hacerlo **incremental por
-   contexto** (empezando por `shared` + `identity`) con commits fechados que encajen en tu calendario GitFlow.
+2. **Estructura de paquetes:** se mantiene la **hexagonal global por capas** (`domain / application /
+   infrastructure`), por simplicidad y claridad expositiva. No se reorganiza por bounded context; las áreas
+   funcionales (identity, document, financial, chat, email, audit) conviven como clases dentro de cada capa.
 3. **JWT: ¿HS256 (secreto compartido, dev rápido) o RS256/JWKS (producción Supabase real)?** Recomiendo soportar
    **resource-server con JWKS** y dejar HS256 sólo para tests locales. — *Decisión tuya.*
 4. **Storage para dev:** ¿Supabase Storage real, S3, o **MinIO en Docker** para no depender de la nube en local?
@@ -182,8 +184,8 @@ conexión de BD + worker de Tomcat durante toda la inferencia. No hay SSE ni eje
 2. **`shared`:** `TenantContext` request-scoped, `GlobalExceptionHandler`, base de seguridad, filtro Hibernate tenant.
 3. **Tenancy by-default:** filtro JWT puebla `TenantContext`; interceptor activa el filtro Hibernate; los repos dejan
    de recibir `organizationId` por parámetro (lo aplica la infraestructura). Tests que prueben la fuga imposible.
-4. **Migración por contexto** (`identity → document → financial → chat → email → audit`), con MapStruct y ArchUnit
-   verificando la regla de dependencia en cada paso.
+4. **Mantener la hexagonal global por capas**; introducir MapStruct y ArchUnit verificando la regla de
+   dependencia `infrastructure → application → domain` en cada paso.
 5. **Storage real** (`FileStoragePort`).
 6. **IA:** `AiGatewayPort` + LangChain4j/Ollama (Llama 3.1 8B) con `@Tool`; sacar el LLM de la transacción; timeouts; SSE.
 7. **Auditoría AOP** en `audit`.

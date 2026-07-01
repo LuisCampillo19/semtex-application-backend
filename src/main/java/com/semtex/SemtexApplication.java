@@ -6,10 +6,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Punto de entrada de Semtex — copiloto administrativo/financiero con IA para PyMEs.
  *
- * Arquitectura hexagonal modular por bounded context:
- *   shared · identity · document · financial · chat · email · audit
+ * Arquitectura hexagonal (puertos y adaptadores) en monolito, organizada por capas:
+ *   domain · application · infrastructure
  *
- * Regla de dependencia dentro de cada contexto: infrastructure -> application -> domain.
+ * Regla de dependencia: infrastructure -> application -> domain.
  * El dominio es POJO puro (sin Spring/JPA). Verificado con ArchUnit.
  */
 @SpringBootApplication
