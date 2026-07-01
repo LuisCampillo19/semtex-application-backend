@@ -38,14 +38,34 @@ El dominio no conoce Spring ni JPA; la regla de dependencia se verifica con **Ar
 - Docker (MinIO para storage en dev; Testcontainers para tests)
 - Ollama local con `llama3.1:8b` para el chat IA
 
-## Arranque rápido
+## Levantar en local
 
-```bash
-cp application-example.properties application.properties   # completa secretos locales
-mvn spring-boot:run
-```
+1. **Dependencias** (Postgres + MinIO + Ollama) con un comando — la primera vez descarga el modelo (~5 GB):
+
+   ```bash
+   docker compose -f docker-compose.dev.yml up -d
+   ```
+
+2. **Configuración local** (modo HS256, sin Supabase):
+
+   ```bash
+   cp application-example.properties application.properties
+   ```
+
+   El ejemplo ya trae `semtex.security.mode=hs256` y apunta a `localhost` (Postgres 5432, Ollama 11434,
+   MinIO 9000). Si ya tienes un Postgres nativo en 5432, mapea el compose a 5433 y ajusta
+   `spring.datasource.url`.
+
+3. **Arrancar la app**:
+
+   ```bash
+   mvn spring-boot:run
+   ```
 
 API en `http://localhost:8080` · Swagger UI en `http://localhost:8080/swagger-ui.html`.
+
+> Para autenticar en local necesitas un JWT HS256 firmado con `semtex.jwt.hs256-secret`, con los claims
+> `sub`, `email`, `org_id` y `role` (ver `docs/API_CONTRACT.md`).
 
 ## Pruebas
 
