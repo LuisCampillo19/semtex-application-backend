@@ -53,6 +53,9 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
 
+                        // Alta de empresa (bootstrap): público, crea organización + primer ADMIN
+                        .requestMatchers(HttpMethod.POST, "/api/register").permitAll()
+
                         // Organizaciones: solo ADMIN crea/elimina
                         .requestMatchers(HttpMethod.POST, "/api/organizations/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/organizations/**").hasRole("ADMIN")

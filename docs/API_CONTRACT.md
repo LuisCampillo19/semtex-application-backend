@@ -62,6 +62,35 @@ Todos los errores devuelven el mismo cuerpo (campos nulos se omiten):
 
 ---
 
+## Registro (alta de empresa) — `POST /api/register` · **público (sin token)**
+
+Punto de entrada del sistema: crea una **organización** y su **primer usuario ADMIN** en una sola
+llamada. Es el único endpoint `/api/**` que no requiere JWT (resuelve el arranque, ya que crear
+usuarios/organizaciones por la API normal exige ser ADMIN).
+
+```json
+{
+  "organizationName": "Ferretería López",
+  "slug": "ferreteria-lopez",
+  "adminEmail": "dueno@ferrelopez.com",
+  "adminUserId": "uuid-opcional-del-usuario-en-supabase"
+}
+```
+
+`adminUserId` es **opcional**: en producción se pasa el `sub` del usuario ya registrado en Supabase Auth
+(para que el id coincida); si se omite, el backend genera uno. Respuesta `201`:
+
+```json
+{
+  "organization": { "id": "uuid", "name": "Ferretería López", "slug": "ferreteria-lopez" },
+  "admin": { "id": "uuid", "email": "dueno@ferrelopez.com", "role": "ADMIN" }
+}
+```
+
+A partir de aquí, ese ADMIN ya puede autenticarse (con su JWT) y crear el resto de usuarios.
+
+---
+
 ## Organizaciones
 
 ### Crear organización — `POST /api/organizations` · **ADMIN**
@@ -277,6 +306,7 @@ USER_DEACTIVATED | ROLE_CHANGED`.
 
 | Método | Ruta | Rol mínimo | Tenant |
 |---|---|---|---|
+| POST | `/api/register` | **público** | crea org + ADMIN |
 | POST | `/api/organizations` | ADMIN | — |
 | GET | `/api/organizations` · `/{id}` | autenticado | token |
 | PATCH/DELETE | `/api/organizations/{id}` | ADMIN | token |

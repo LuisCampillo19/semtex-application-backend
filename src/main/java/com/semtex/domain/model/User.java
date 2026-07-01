@@ -22,8 +22,13 @@ public class User {
 
     /** Factory de creación (id y timestamps generados). */
     public static User create(String email, Role role, UUID organizationId) {
+        return create(UUID.randomUUID(), email, role, organizationId);
+    }
+
+    /** Factory de creación con id explícito (p. ej. el {@code sub} del JWT de Supabase). */
+    public static User create(UUID id, String email, Role role, UUID organizationId) {
         LocalDateTime now = LocalDateTime.now();
-        return new User(UUID.randomUUID(), email, role, organizationId, true, null, now, now);
+        return new User(id, email, role, organizationId, true, null, now, now);
     }
 
     /** Constructor canónico (también usado por el mapper de persistencia). */
